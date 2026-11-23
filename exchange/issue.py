@@ -2,8 +2,9 @@ from dataclasses import dataclass
 
 from bench.fractional import FractionalMap, compose_maps
 from bench.stages import CalibrationStage
-from exchange.calibration_body import CalibrationBody, SupportInterval, encode_body
+from exchange.calibration_body import CalibrationBody, encode_body
 from exchange.envelope import PieceOrigin, encode_envelope
+from exchange.support import chain_support
 from station.revision_store import RevisionStore
 
 
@@ -14,26 +15,16 @@ class IssuedPiece:
 
 
 def _calibration_body(stages: tuple[CalibrationStage, ...]) -> CalibrationBody:
+    support = chain_support(stages)
+    if not support:
+        return CalibrationBody(None, ())
     terminal = FractionalMap(1, 0, 0, 1)
     try:
         for stage in stages:
             terminal = compose_maps(stage.conversion, terminal)
     except ZeroDivisionError:
         return CalibrationBody(None, ())
-
-    limits = stages[0].input_range
-    lower, upper = limits.lower, limits.upper
-    pole = terminal.pole
-    if pole is None or not limits.contains(pole):
-        return CalibrationBody(terminal, (SupportInterval(lower, upper, lower is not None,
-                                                          upper is not None),))
-
-    support = []
-    if lower is None or lower < pole:
-        support.append(SupportInterval(lower, pole, lower is not None, False))
-    if upper is None or pole < upper:
-        support.append(SupportInterval(pole, upper, False, upper is not None))
-    return CalibrationBody(terminal if support else None, tuple(support))
+    return CalibrationBody(terminal, support)
 
 
 def issue(store: RevisionStore, revision_id: int) -> IssuedPiece:
